@@ -1,11 +1,12 @@
 from __future__ import division
+from logging import raiseExceptions
 from shapely.geometry import Point, LineString
 import random
 import math
 import numpy as np
 
 class PathPlanner():
-    def initialise(self, environment, bounds, start_pose, goal_region, object_radius, steer_distance, num_iterations, resolution):
+    def initialise(self, environment, bounds, start_pose, goal_region, object_radius, steer_distance, num_iterations, curve_type, resolution):
         self.env = environment
         self.obstacles = environment.obstacles
         self.bounds = bounds
@@ -20,11 +21,15 @@ class PathPlanner():
         self.E = set()
         self.child_to_parent_dict = dict()
         self.goal_pose = (goal_region.centroid.coords[0])
+        self.curve_type = curve_type
 
-    def path(self, environment, bounds, start_pose, goal_region, object_radius, steer_distance, num_iterations, resolution, RRT_Flavour):
+    def path(self, environment, bounds, start_pose, goal_region, object_radius, steer_distance, num_iterations, curve_type, resolution, RRT_Flavour):
         self.env = environment
-        self.initialise(environment, bounds, start_pose, goal_region, object_radius, steer_distance, num_iterations, resolution)
-        x0, y0 = start_pose
+        self.initialise(environment, bounds, start_pose, goal_region, object_radius, steer_distance, num_iterations, curve_type, resolution)
+        if (len(start_pose) == 3):
+            x0, y0, phi = start_pose
+        else:
+            x0, y0 = start_pose
         x1, y1 = goal_region.centroid.coords[0]
         start = (x0, y0)
         goal = (x1, y1)
@@ -61,7 +66,13 @@ class PathPlanner():
                 random_point = self.get_collision_free_random_point()
             
             nearest_point = self.find_nearest_point(random_point)
-            new_point = self.steer(nearest_point, random_point)
+
+            if self.curve_type == "steer":
+                new_point = self.steer(nearest_point, random_point)
+            elif self.curve_type == "dubins":
+                new_point = self.dubins(nearest_point, random_point)
+            else:
+                raise Exception("Wrong curve_type")
 
             if self.isEdgeCollisionFree(nearest_point, new_point):
                 self.V.add(new_point)
@@ -91,7 +102,13 @@ class PathPlanner():
                 random_point = self.get_collision_free_random_point()
 
             nearest_point = self.find_nearest_point(random_point)
-            new_point = self.steer(nearest_point, random_point)
+
+            if self.curve_type == "steer":
+                new_point = self.steer(nearest_point, random_point)
+            elif self.curve_type == "dubins":
+                new_point = self.dubins(nearest_point, random_point)
+            else:
+                raise Exception("Wrong curve_type")
 
             if self.isEdgeCollisionFree(nearest_point, new_point):
                 nearest_set = self.find_nearest_set(new_point)
@@ -223,7 +240,7 @@ class PathPlanner():
     def isEdgeCollisionFree(self, point1, point2):
         if self.isOutOfBounds(point2):
             return False
-        line = LineString([point1, point2])
+        line = LineString([point1[:2], point2[:2]])
         expanded_line = line.buffer(self.obj_radius, self.resolution)
         for obstacle in self.obstacles:
             if expanded_line.intersects(obstacle):
@@ -236,11 +253,23 @@ class PathPlanner():
         if fromPoint_buffered.distance(toPoint_buffered) < self.steer_distance:
             return to_point
         else:
-            from_x, from_y = from_point
+            from_x, from_y = 0, 0
+            if (len(from_point) == 3):
+                from_x, from_y, from_phi = from_point
+            else:
+                from_x, from_y = from_point
             to_x, to_y = to_point
-            theta = math.atan2(to_y - from_y, to_x- from_x)
+            theta = math.atan2(to_y - from_y, to_x - from_x)
             new_point = (from_x + self.steer_distance * math.cos(theta), from_y + self.steer_distance * math.sin(theta))
             return new_point
+      
+    def dubins(self, from_point, to_point):
+        fromPoint_buffered = Point(from_point).buffer(self.obj_radius, self.resolution)
+        toPoint_buffered = Point(to_point).buffer(self.obj_radius, self.resolution)
+        if fromPoint_buffered.distance(toPoint_buffered) < self.steer_distance:
+            return to_point
+        else:
+            raise NotImplementedError
 
     def isAtGoalRegion(self, point):
         buffered_point = Point(point).buffer(self.obj_radius, self.resolution)
